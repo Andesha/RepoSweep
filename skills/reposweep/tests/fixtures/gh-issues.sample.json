@@ -1,0 +1,22 @@
+[
+  {
+    "number": 501,
+    "title": "App crashes on startup when config file is missing",
+    "url": "https://github.com/Andesha/RepoSweep/issues/501",
+    "state": "OPEN",
+    "author": { "login": "rgomez", "is_bot": false },
+    "createdAt": "2025-08-01T10:00:00Z",
+    "updatedAt": "2025-08-20T10:00:00Z",
+    "labels": [ { "name": "type:bug" }, { "name": "needs-info" } ]
+  },
+  {
+    "number": 502,
+    "title": "Add dark mode to the report",
+    "url": "https://github.com/Andesha/RepoSweep/issues/502",
+    "state": "OPEN",
+    "author": { "login": "priya-k", "is_bot": false },
+    "createdAt": "2025-07-15T10:00:00Z",
+    "updatedAt": "2025-07-16T10:00:00Z",
+    "labels": [ { "name": "enhancement" }, { "name": "good-first-issue" } ]
+  }
+]

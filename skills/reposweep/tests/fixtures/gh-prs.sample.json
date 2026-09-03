@@ -1,0 +1,32 @@
+[
+  {
+    "number": 610,
+    "title": "Bump lodash from 4.17.20 to 4.17.21",
+    "url": "https://github.com/Andesha/RepoSweep/pull/610",
+    "state": "OPEN",
+    "author": { "login": "dependabot[bot]", "is_bot": true },
+    "createdAt": "2025-08-25T10:00:00Z",
+    "updatedAt": "2025-08-26T10:00:00Z",
+    "labels": [ { "name": "dependencies" } ],
+    "isDraft": false,
+    "additions": 2,
+    "deletions": 2,
+    "changedFiles": 1,
+    "mergeStateStatus": "CLEAN"
+  },
+  {
+    "number": 611,
+    "title": "Refactor report renderer",
+    "url": "https://github.com/Andesha/RepoSweep/pull/611",
+    "state": "OPEN",
+    "author": { "login": "mira", "is_bot": false },
+    "createdAt": "2025-06-01T10:00:00Z",
+    "updatedAt": "2025-07-01T10:00:00Z",
+    "labels": [],
+    "isDraft": true,
+    "additions": 640,
+    "deletions": 120,
+    "changedFiles": 14,
+    "mergeStateStatus": "DIRTY"
+  }
+]
