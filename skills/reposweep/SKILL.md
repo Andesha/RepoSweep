@@ -137,12 +137,12 @@ classification, dedup, the report, and config resolution are unchanged.
 sh tests/run-tests.sh
 ```
 
-Dependency-free POSIX assertions. They cover the one automated seam — the
-mechanical classification pipeline (both ladders, sizing, staleness incl.
-`needs-info` fast-stale and queued-work exemption, duplicate nomination,
-`needs_agent` seeding), config resolution/precedence, run scaffolding, the
-normalize transform (against a recorded API sample), and a structural report
-check. The LLM passes and report presentation are verified by eye.
+Dependency-free POSIX assertions over the **one seam worth testing** — the
+mechanical classification ladder (both first-match ladders, size bucketing,
+staleness, and duplicate nomination). That's the tool's deterministic opinion,
+where a wrong change is quiet. Everything else — config resolution, the
+normalize transform, the report, the LLM passes — is verified by running a real
+sweep and reading the output, not frozen behind more tests.
 
 ## Out of scope
 
