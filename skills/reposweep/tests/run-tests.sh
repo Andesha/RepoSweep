@@ -1,61 +1,121 @@
 #!/bin/sh
-# RepoSweep tests. One focused seam: the mechanical classification ladder — the
-# tool's deterministic opinion, and the only part where a wrong change is quiet
-# and costly. Feed a fixture of Normalized items, run the mechanical pass, assert
-# each verdict. No network (gh), no LLM. Run: sh tests/run-tests.sh
-set -u
-
-SKILL_DIR=$(CDPATH= cd "$(dirname "$0")/.." && pwd)
-SCRIPTS="$SKILL_DIR/scripts"
-FIX="$SKILL_DIR/tests/fixtures"
+# Offline artifact checks: classification/config, and the new checkpoint boundary.
+set -eu
+SKILL=$(CDPATH='' cd "$(dirname "$0")/.." && pwd)
+SCRIPTS="$SKILL/scripts"
 . "$SCRIPTS/lib.sh"
-
-PASS=0
-FAIL=0
-assert_eq() { # desc expected actual
-  if [ "$2" = "$3" ]; then
-    PASS=$((PASS + 1)); printf 'ok   - %s\n' "$1"
-  else
-    FAIL=$((FAIL + 1)); printf 'FAIL - %s\n        expected [%s] got [%s]\n' "$1" "$2" "$3"
-  fi
-}
-
-# Build a run from the fixture items + zero-config defaults, then classify.
+for key in $REPOSWEEP_KEYS; do unset "$key"; done
 work=$(mktemp -d)
+trap 'rm -rf "$work"' 0
+trap 'exit 1' HUP INT TERM
 run="$work/run"
-mkdir -p "$run"
-cp "$FIX/items.jsonl" "$run/items.jsonl"
-resolve_config "$SKILL_DIR" "$work" | write_meta "$run" "2026-01-01T00:00:00Z" "owner/repo"
+mkdir "$run"
+cp "$SKILL/tests/fixtures/items.jsonl" "$run/items.jsonl"
+config=$(resolve_config "$SKILL" "$work")
+printf '%s\n' "$config" | write_meta "$run" '2026-01-01T00:00:00Z' 'example/repo'
 sh "$SCRIPTS/classify.sh" "$run" >/dev/null
 V="$run/verdicts.jsonl"
+checks=0
+check() {
+  jq -es "$2" "$V" >/dev/null || { echo "FAIL: $1" >&2; exit 1; }
+  checks=$((checks+1)); printf 'ok - %s\n' "$1"
+}
+check 'issue ladder, including queued-work exemptions' '
+  map(select(.item.kind=="issue") | [.item.number,.bin]) ==
+  [[101,"wontfix"],[102,"needs-info"],[103,"close-as-stale"],[104,"close-as-stale"],
+   [105,"ready-for-agent"],[106,"ready-for-human"],[107,"needs-triage"],[108,"ready-for-agent"],
+   [109,"needs-triage"],[110,"needs-triage"]]'
+check 'PR ladder, including the shorter needs-info window' '
+  map(select(.item.kind=="pr") | [.item.number,.bin]) ==
+  [[201,"close-as-stale"],[202,"flag-for-review"],[203,"needs-rebase"],[204,"needs-triage"],
+   [205,"needs-triage"],[206,"needs-triage"],[207,"needs-triage"],[208,"needs-triage"],[209,"close-as-stale"]]'
+check 'nomination is not confirmation and preserves the mechanical bin' '
+  all(.[]; .duplicate_of == null) and
+  ([.[] | select(.item.number==110) | .duplicate_candidates[] | [.number,.confirmed]] == [[109,null]])'
+check 'kinds retain only their own fields, and sizing/long-lived facets are derived' '
+  all(.[] | select(.item.kind=="issue"); (.item|has("size_bucket")|not)) and
+  ([.[]|select(.item.number==201 or .item.number==202 or .item.number==203)|.item.size_bucket] == ["small","large","medium"]) and
+  any(.[]; .item.number==202 and .item.long_lived)'
+check 'rule provenance and judgment flags are meaningful' '
+  all(.[]; (.matched_rule|length)>0) and ([.[]|select(.needs_agent)|.item.number] == [107,109,110])'
+cp "$V" "$work/first.jsonl"
+# Refuse an accidental restart that would wipe agent work.
+if sh "$SCRIPTS/classify.sh" "$run" >/dev/null 2>&1; then echo 'FAIL: overwrote verdicts' >&2; exit 1; fi
+cmp "$V" "$work/first.jsonl"
 
-bin_of()  { jq -r --argjson n "$1" 'select(.item.number==$n)|.bin' "$V"; }
-dup_of()  { jq -r --argjson n "$1" 'select(.item.number==$n)|.duplicate_of' "$V"; }
-size_of() { jq -r --argjson n "$1" 'select(.item.number==$n)|.item.size_bucket' "$V"; }
+# Read-only configuration, with a partial repo override and env taking precedence.
+printf 'STALE_DAYS=12\nDEDUP_MAX_PARTNERS=1\n' > "$work/reposweep.env"
+config=$(STALE_DAYS=25 resolve_config "$SKILL" "$work")
+printf '%s\n' "$config" | write_meta "$run" '2026-01-01T00:00:00Z' 'example/repo'
+jq -e '.thresholds.STALE_DAYS==25 and .thresholds.DEDUP_MAX_PARTNERS==1 and .thresholds.NEEDS_INFO_DAYS==7' "$run/meta.json" >/dev/null
+if STALE_DAYS='$(touch bad)' resolve_config "$SKILL" "$work" >/dev/null 2>&1; then echo 'FAIL: accepted nonnumeric config' >&2; exit 1; fi
+printf '| `needs-info` | `waiting` | Waiting |\n' > "$work/labels.md"
+labels=$(resolve_labels "$work/labels.md")
+jq --argjson labels "$labels" '.labels=$labels' "$run/meta.json" > "$work/meta.json"
+mv "$work/meta.json" "$run/meta.json"
 
-# Issue ladder: wontfix -> possible-duplicate -> needs-info -> close-as-stale
-#               -> ready-for-agent -> ready-for-human -> needs-triage
-assert_eq "issue: wontfix label"                  wontfix         "$(bin_of 101)"
-assert_eq "issue: needs-info within window"       needs-info      "$(bin_of 102)"
-assert_eq "issue: needs-info past window stales"  close-as-stale  "$(bin_of 103)"
-assert_eq "issue: idle unqueued stales"           close-as-stale  "$(bin_of 104)"
-assert_eq "issue: queued ready-for-agent exempt"  ready-for-agent "$(bin_of 105)"
-assert_eq "issue: fallthrough -> needs-triage"    needs-triage    "$(bin_of 107)"
+# Exercise safety boundaries and a dense duplicate graph in one small input.
+jq -s '
+  . as $items | ($items[]|select(.number==201)) as $pr | ($items[]|select(.number==109)) as $issue
+  | [($pr + {number:1,title:"Unknown merge state",mergeable_state:"unknown"}),
+     ($pr + {number:2,title:"Blocked checks",mergeable_state:"blocked"}),
+     ($pr + {number:3,title:"Large old request",additions:600,mergeable_state:"clean"}),
+     ($pr + {number:4,title:"Queued old request",carried_labels:["ready-for-agent"]}),
+     ($pr + {number:5,title:"Waiting old conflict",carried_labels:["waiting"],updated_at:"2025-12-20T00:00:00Z",mergeable_state:"dirty"}),
+     ($issue + {number:6,title:"Exact stale boundary",updated_at:"2025-12-07T00:00:00Z"}),
+     ($issue + {number:7,title:"Exact waiting boundary",carried_labels:["waiting"],updated_at:"2025-12-25T00:00:00Z"}),
+     ($pr + {number:8,title:$issue.title,updated_at:"2025-12-28T00:00:00Z"}),
+     ($issue + {number:9}),($issue + {number:10}),($issue + {number:11}),($issue + {number:12})][]
+' "$SKILL/tests/fixtures/items.jsonl" > "$run/items.jsonl"
+rm "$V"
+sh "$SCRIPTS/classify.sh" "$run" >/dev/null
+check 'unknown, blocked, large, and conflicted stale PRs never become close proposals' '
+  [.[]|select(.item.number==1 or .item.number==2 or .item.number==3 or .item.number==5)|.bin] == ["flag-for-review","flag-for-review","flag-for-review","flag-for-review"]'
+check 'queued PR and exact idle boundaries do not go stale; label mapping applies' '
+  [.[]|select(.item.number==4 or .item.number==6 or .item.number==7)|.bin] == ["needs-triage","needs-triage","needs-info"]'
+check 'dense title matches keep top candidates, with a cap at both endpoints and no cross-kind nominations' '
+  [.[] as $v | $v.duplicate_candidates[] | [.number,$v.item.number]] as $pairs
+  | ([$pairs[]|select(.[0]>=9 and .[1]>=9)]|length)==2
+    and all($pairs[]; .[0]!=8 and .[1]!=8)
+    and ($pairs|flatten|group_by(.)|all(.[];length<=1))'
 
-# Duplicates: the lowest (oldest) number is canonical.
-assert_eq "dedup: newer -> possible-duplicate"    possible-duplicate "$(bin_of 110)"
-assert_eq "dedup: points at canonical"            109                "$(dup_of 110)"
-assert_eq "dedup: canonical stays null"           null               "$(dup_of 109)"
-
-# PR ladder + sizing. A large or conflicted-and-old PR is never silently closed.
-assert_eq "pr: small clean idle -> close-as-stale"      close-as-stale  "$(bin_of 201)"
-assert_eq "pr: large conflicted old -> flag-for-review" flag-for-review "$(bin_of 202)"
-assert_eq "pr: fresh conflict -> needs-rebase"          needs-rebase    "$(bin_of 203)"
-assert_eq "pr: healthy recent -> needs-triage"          needs-triage    "$(bin_of 204)"
-assert_eq "pr size: small"  small  "$(size_of 201)"
-assert_eq "pr size: large"  large  "$(size_of 202)"
-assert_eq "pr size: medium" medium "$(size_of 203)"
-
-rm -rf "$work"
-printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
-[ "$FAIL" -eq 0 ]
+# Restore the normal run and review it in batches, preserving unrelated rows.
+cp "$work/first.jsonl" "$V"
+sh "$SCRIPTS/review.sh" next "$run" 1 > "$work/next.json"
+jq -e '.stage=="judgment" and (.items|length)==1 and .items[0].verdict.item.number==107' "$work/next.json" >/dev/null
+printf '%s\n' '{"stage":"judgment","decisions":[{"number":107,"bin":"needs-info","reason":"Missing reproduction steps."}]}' > "$work/batch.json"
+sh "$SCRIPTS/review.sh" apply "$run" "$work/batch.json"
+check 'judgment checkpoint updates only the selected row' 'any(.[]; .item.number==107 and .bin=="needs-info" and .needs_agent==false) and any(.[]; .item.number==109 and .needs_agent)'
+cp "$V" "$work/checkpoint.jsonl"
+if sh "$SCRIPTS/review.sh" apply "$run" "$work/batch.json" >/dev/null 2>&1; then echo 'FAIL: accepted repeated decision' >&2; exit 1; fi
+cmp "$V" "$work/checkpoint.jsonl"
+# An invalid second decision must not apply a valid first decision.
+printf '%s\n' '{"stage":"judgment","decisions":[{"number":109,"bin":"ready-for-agent","reason":"Bounded reproduction."},{"number":110,"bin":"needs-rebase","reason":"Invalid issue bin."}]}' > "$work/batch.json"
+if sh "$SCRIPTS/review.sh" apply "$run" "$work/batch.json" >/dev/null 2>&1; then echo 'FAIL: accepted invalid batch' >&2; exit 1; fi
+cmp "$V" "$work/checkpoint.jsonl"
+jq -s '{stage:"judgment",decisions:[.[]|select(.needs_agent)|{number:.item.number,bin:"ready-for-agent",reason:"Explicit reproduction and expected behavior."}]}' "$V" > "$work/batch.json"
+sh "$SCRIPTS/review.sh" apply "$run" "$work/batch.json"
+printf '%s\n' '{"stage":"duplicates","decisions":[{"numbers":[109,110],"confirmed":true,"reason":"Same missing-config crash and reproduction."},{"numbers":[206,207],"confirmed":false,"reason":"Different export formats despite similar titles."}]}' > "$work/batch.json"
+sh "$SCRIPTS/review.sh" apply "$run" "$work/batch.json"
+check 'confirmed duplicate uses the older canonical; rejected nomination leaves bin and pointer unchanged' '
+  any(.[]; .item.number==110 and .duplicate_of==109 and .bin=="possible-duplicate") and
+  any(.[]; .item.number==207 and .duplicate_of==null and .bin=="needs-triage" and .matched_rule=="healthy")'
+sh "$SCRIPTS/review.sh" next "$run" > "$work/next.json"
+jq -e '.stage=="complete"' "$work/next.json" >/dev/null
+# Three-way union, including wontfix precedence.
+jq -s 'map(select(.item.number==109 or .item.number==110)) | . + [.[1] | .item.number=111 | .bin="wontfix" | .duplicate_of=null | .duplicate_candidates=[{number:110,score:1,confirmed:null}]] | .[]' "$V" > "$work/cluster.jsonl"
+cp "$work/cluster.jsonl" "$V"
+printf '%s\n' '{"stage":"duplicates","decisions":[{"numbers":[110,111],"confirmed":true,"reason":"Third report of the same crash."}]}' > "$work/batch.json"
+sh "$SCRIPTS/review.sh" apply "$run" "$work/batch.json"
+check 'duplicate chains flatten to the oldest canonical without overriding wontfix' '
+  any(.[]; .item.number==110 and .duplicate_of==109) and any(.[]; .item.number==111 and .duplicate_of==109 and .bin=="wontfix")'
+# Bridge an existing group to an older canonical through an incoming edge.
+jq -s '(. + [.[0] | .item.number=108 | .duplicate_candidates=[]])
+  | map(if .item.number==110 then .duplicate_candidates += [{number:108,score:1,confirmed:null}] else . end)
+  | sort_by(.item.number) | .[]' "$V" > "$work/bridge.jsonl"
+cp "$work/bridge.jsonl" "$V"
+printf '%s\n' '{"stage":"duplicates","decisions":[{"numbers":[108,110],"confirmed":true,"reason":"The older report describes the same missing-config crash."}]}' > "$work/batch.json"
+sh "$SCRIPTS/review.sh" apply "$run" "$work/batch.json"
+check 'merging groups replaces an incoming-only members original rationale with duplicate evidence' '
+  any(.[]; .item.number==109 and .duplicate_of==108 and .bin=="possible-duplicate" and (.reason|contains("via #109/#110")))'
+printf '\n%d artifact checks passed; config precedence, batch rejection, and resume checks passed.\n' "$checks"

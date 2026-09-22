@@ -1,74 +1,41 @@
 #!/bin/sh
-# RepoSweep — sweep orchestrator. Runs the deterministic half of one sweep:
-# resolve config -> create the run -> fetch & normalize -> mechanical classify
-# -> render report -> repoint `latest`. It writes NOTHING back to the tracker.
-#
-# The LLM judgment passes (classifying needs_agent rows, confirming duplicates)
-# are the agent's job — see SKILL.md. After the agent edits verdicts.jsonl in
-# place, re-run `report.sh <run>` to refresh the report. This script is safe to
-# run standalone for a fully mechanical first cut.
-#
-# Usage: reposweep            # sweep the current repo
-#        reposweep --help
+# Start a read-only sweep. The driving agent completes judgment via review.sh.
 set -eu
-
-HERE=$(CDPATH= cd "$(dirname "$0")" && pwd)
-SKILL_DIR=$(CDPATH= cd "$HERE/.." && pwd)
+HERE=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 . "$HERE/lib.sh"
-
 case "${1:-}" in
   -h|--help)
-    sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
-    exit 0 ;;
+    printf 'Usage: sh %s [TARGET_REPO_DIRECTORY]\n\nFetch all open GitHub issues and PRs, classify, and render a preliminary report.\nRun inside an agent with SKILL.md to complete judgment and duplicate review.\nOnly local .reposweep/ artifacts are written.\n' "$0"
+    exit 0;;
 esac
-
-REPO_ROOT=${REPOSWEEP_REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}
-RUNS="$REPO_ROOT/.reposweep/runs"
-mkdir -p "$RUNS"
-
-RID=$(run_id)
+[ "$#" -le 1 ] || { echo 'reposweep: expected at most one target directory' >&2; exit 1; }
+for tool in gh jq git; do command -v "$tool" >/dev/null || { echo "reposweep: missing $tool" >&2; exit 1; }; done
+ROOT=$(git -C "${1:-.}" rev-parse --show-toplevel)
+REPO=$(cd "$ROOT" && gh repo view --json nameWithOwner -q .nameWithOwner)
+config=$(resolve_config "$HERE/.." "$ROOT")
+labels=$(resolve_labels "$ROOT/docs/agents/triage-labels.md")
 SA=$(swept_at)
-REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || echo "")
-
-RUN=$(create_run "$RUNS" "$RID")
-printf 'reposweep: run %s\n' "$RID" >&2
-
-# 1. Resolve thresholds once and freeze them into the run (resolve-once).
-resolve_config "$SKILL_DIR" "$REPO_ROOT" | write_meta "$RUN" "$SA" "$REPO"
-
-# 2. Tracker seam: fetch all open items, normalize.
+RID=$(printf '%s' "$SA" | tr -d ':-')
+RUNS="$ROOT/.reposweep/runs"
+mkdir -p "$RUNS"
+RUN="$RUNS/$RID"
+i=0
+while [ -e "$RUN" ]; do i=$((i + 1)); RUN="$RUNS/$RID-$i"; done
+mkdir "$RUN"
+printf '%s\n' "$config" | write_meta "$RUN" "$SA" "$REPO"
+jq --argjson labels "$labels" '.labels = $labels' "$RUN/meta.json" > "$RUN/meta.tmp"
+mv "$RUN/meta.tmp" "$RUN/meta.json"
+printf 'reposweep: fetching %s into %s\n' "$REPO" "$RUN" >&2
 sh "$HERE/fetch-normalize.sh" "$RUN" >/dev/null
-
-# 3. Mechanical classification (both ladders, sizing, staleness, dedup nomination).
 sh "$HERE/classify.sh" "$RUN" >/dev/null
-
-# 4. First-cut report.
 sh "$HERE/report.sh" "$RUN" >/dev/null
-
-# 5. Point `latest` at this run.
-update_latest "$RUNS" "$RID"
-
-# --- summary ---------------------------------------------------------------
-total=$(wc -l < "$RUN/items.jsonl" | tr -d ' ')
-flagged=$(jq -s '[.[]|select(.needs_agent)]|length' "$RUN/verdicts.jsonl")
-dups=$(jq -s '[.[]|select(.duplicate_of != null)]|length' "$RUN/verdicts.jsonl")
-
-cat >&2 <<EOF
-
-reposweep: swept ${total} open items (propose-only — nothing written back).
-  run dir     : ${RUN}
-  latest      : ${RUNS}/latest -> ${RID}
-  report      : ${RUN}/report.html
-  need agent  : ${flagged} verdict(s) seeded needs_agent for judgment
-  duplicates  : ${dups} item(s) nominated as possible duplicates (confirm in the agent pass)
-
-Next (agent pass): refine the ${flagged} needs_agent rows in verdicts.jsonl in
-checkpointed batches, confirm the ${dups} duplicate nominations, then re-run:
-  sh ${HERE}/report.sh ${RUN}
-
-To publish the report to GitHub Pages (propose-only — you run these two lines):
-  cp ${RUN}/report.html ${REPO_ROOT}/docs/reposweep/index.html
-  git add docs/reposweep/index.html && git commit -m 'reposweep report' && git push
-EOF
-
+# Publish latest only after the mechanical run succeeds.
+if [ -e "$RUNS/latest" ] && [ ! -L "$RUNS/latest" ]; then
+  echo "reposweep: refusing to replace non-symlink $RUNS/latest" >&2; exit 1
+fi
+rm -f "$RUNS/latest"
+ln -s "$(basename "$RUN")" "$RUNS/latest"
+jq -rs --arg run "$RUN" '"reposweep: \(length) items; \([.[] | select(.needs_agent)] | length) judgments and \([.[].duplicate_candidates[] | select(.confirmed == null)] | length) duplicate pairs pending.\nReport: \($run)/report.html\nNo tracker changes made."' "$RUN/verdicts.jsonl" >&2
+printf '\nContinue with: sh %s/review.sh next %s\n\n' "$HERE" "$RUN" >&2
+sh "$HERE/report.sh" --publish "$RUN" "$ROOT" >&2
 printf '%s\n' "$RUN"

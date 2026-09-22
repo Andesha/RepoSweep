@@ -1,43 +1,25 @@
-# RepoSweep — normalize a tracker payload into the Normalized item shape.
-#
-# This is the pure-transform half of the fetch-and-normalize seam — the ONE
-# place that knows a specific tracker's field names. Porting RepoSweep to
-# another tracker means writing an adapter that feeds this the same shape, or
-# swapping this filter. Input: an array of raw gh issue/PR records. Output: one
-# normalized item per line. Invoke with --arg kind "issue" | "pr".
-#
-# carried_labels are the raw label strings; the triage-labels.md indirection
-# (role <-> actual string) is identity in this repo, so downstream matches the
-# role strings directly.
+include "rules";
 
-def derive_type($labels):
-  ($labels | map(ascii_downcase)) as $l
-  | if   ($l | any(test("bug")))                 then "bug"
-    elif ($l | any(test("feature|enhancement"))) then "feature"
-    elif ($l | any(test("doc")))                 then "docs"
+def issue_type:
+  [.labels[].name | ascii_downcase] as $labels
+  | if any($labels[]; . == "bug" or . == "type:bug" or . == "type: bug" or . == "kind/bug") then "bug"
+    elif any($labels[]; . == "feature" or . == "enhancement" or . == "type:feature" or . == "type: feature" or . == "kind/feature") then "feature"
+    elif any($labels[]; . == "documentation" or . == "docs" or . == "type:docs" or . == "type: docs" or . == "kind/documentation") then "docs"
     else null end;
 
-def base:
-  {
-    number, url, title,
-    kind: $kind,
-    state: ((.state // "OPEN") | ascii_downcase),
-    author: (.author.login // "unknown"),
-    is_bot: (.author.is_bot // false),
-    created_at: .createdAt,
-    updated_at: .updatedAt,
-    carried_labels: [ (.labels // [])[].name ]
-  };
-
-.[] |
-if $kind == "issue" then
-  base + { type: derive_type([ (.labels // [])[].name ]) }
-else
-  base + {
-    is_draft:        (.isDraft // false),
-    additions:       (.additions // 0),
-    deletions:       (.deletions // 0),
-    changed_files:   (.changedFiles // 0),
-    mergeable_state: (.mergeStateStatus // "UNKNOWN")
+# Input is recorded GitHub REST issue records and full per-PR GET records.
+. as $raw
+| {
+    number, url: .html_url, title, state,
+    kind: (if has("mergeable_state") then "pr" else "issue" end),
+    author: (.user.login // "ghost"),
+    is_bot: (.user.type == "Bot" or ((.user.login // "") | endswith("[bot]"))),
+    created_at, updated_at, carried_labels: [.labels[].name]
   }
-end
+| if .kind == "issue" then . + {type: ($raw | issue_type)}
+  else . + {
+    is_draft: $raw.draft,
+    additions: $raw.additions, deletions: $raw.deletions, changed_files: $raw.changed_files,
+    mergeable_state: ($raw.mergeable_state // "unknown")
+  } end
+| derive($meta[0])

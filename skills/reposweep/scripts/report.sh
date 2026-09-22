@@ -1,60 +1,30 @@
 #!/bin/sh
-# RepoSweep — render a run's verdicts into a single self-contained report.html.
-#
-# Reads verdicts.jsonl + meta.json from the run, flattens each verdict to the
-# report's view shape, and injects DATA and META into report.template.html by
-# replacing marker lines (getline, so JSON backslashes are never re-escaped).
-# No CDN, no build step — the output is one file you can open offline or copy
-# into docs/ to publish. Uses the run's RESOLVED thresholds (from meta.json).
-#
-# Usage: report.sh RUN_DIR
+# Render one offline report. --publish only prints commands for a human to run.
 set -eu
-
-HERE=$(CDPATH= cd "$(dirname "$0")" && pwd)
+HERE=$(CDPATH='' cd "$(dirname "$0")" && pwd)
+. "$HERE/lib.sh"
+if [ "${1:-}" = --publish ]; then
+  run=${2:?missing run directory} root=${3:?missing target repository root}
+  src=$(jq -nr --arg p "$run/report.html" '$p|@sh')
+  dst=$(jq -nr --arg p "$root/docs/reposweep" '$p|@sh')
+  repo=$(jq -nr --arg p "$root" '$p|@sh')
+  printf 'Review the report for private information before publishing. On your intended publishing branch, run:\n'
+  printf 'mkdir -p %s && cp %s %s/index.html\n' "$dst" "$src" "$dst"
+  printf "git -C %s add docs/reposweep/index.html && git -C %s commit -m 'Publish RepoSweep report' && git -C %s push\n" "$repo" "$repo" "$repo"
+  exit 0
+fi
 RUN_DIR=${1:?usage: report.sh RUN_DIR}
-V="$RUN_DIR/verdicts.jsonl"
-META="$RUN_DIR/meta.json"
-OUT="$RUN_DIR/report.html"
-TEMPLATE="$HERE/report.template.html"
-
-[ -f "$V" ]    || { echo "report: no verdicts.jsonl in $RUN_DIR" >&2; exit 1; }
-[ -f "$META" ] || { echo "report: no meta.json in $RUN_DIR" >&2; exit 1; }
-
-DATA_F="$RUN_DIR/.report-data.json"
-META_F="$RUN_DIR/.report-meta.json"
-
-# Flatten verdicts to the compact view shape the template's JS expects.
-jq -s -c '
-  [ .[] | {
-      number:   .item.number,
-      kind:     .item.kind,
-      title:    .item.title,
-      url:      .item.url,
-      author:   .item.author,
-      is_bot:   (.item.is_bot // false),
-      type:     (.item.type // null),
-      is_draft: (.item.is_draft // false),
-      conflicted: (.item.conflicted // false),
-      long_lived: (.item.long_lived // false),
-      size:     (.item.size_bucket // null),
-      age:      (.item.age_days // null),
-      idle:     (.item.idle_days // null),
-      bin:      .bin,
-      dup:      .duplicate_of,
-      reason:   .reason,
-      rule:     .matched_rule,
-      flags:    (.flags // []),
-      labels:   (.item.carried_labels // [])
-    } ]
-' "$V" > "$DATA_F"
-
-jq -c . "$META" > "$META_F"
-
-awk -v D="$DATA_F" -v M="$META_F" '
-  /__REPOSWEEP_DATA__/ { while ((getline l < D) > 0) print l; next }
-  /__REPOSWEEP_META__/ { while ((getline l < M) > 0) print l; next }
-  { print }
-' "$TEMPLATE" > "$OUT"
-
-rm -f "$DATA_F" "$META_F"
-printf '%s\n' "$OUT"
+lock_run "$RUN_DIR"
+# Escape < in serialized JSON so tracker text cannot terminate the script tag.
+jq -sr -L "$HERE" --slurpfile meta "$RUN_DIR/meta.json" '
+  include "rules";
+  map(. + {past_due: (.item | past_due($meta[0])), stale_window: (.item | stale_window($meta[0]))})
+  | tojson | gsub("<"; "\\u003c")' "$RUN_DIR/verdicts.jsonl" > "$lock/data.json"
+jq -r 'tojson | gsub("<"; "\\u003c")' "$RUN_DIR/meta.json" > "$lock/meta.json"
+awk -v D="$lock/data.json" -v M="$lock/meta.json" '
+  /__REPOSWEEP_DATA__/ {while ((getline line < D) > 0) print line; next}
+  /__REPOSWEEP_META__/ {while ((getline line < M) > 0) print line; next}
+  {print}
+' "$HERE/report.template.html" > "$lock/report.html"
+mv "$lock/report.html" "$RUN_DIR/report.html"
+printf '%s\n' "$RUN_DIR/report.html"
