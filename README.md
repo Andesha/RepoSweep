@@ -151,10 +151,12 @@ A clearly labelled report was recovered from 313 of 697 listed items; none of
 its agent review was completed. Allow long-running fetches rather than wrapping
 them in a short tool timeout. Process exit status alone is not sweep completion.
 
-The historical Loris run predates durable fetch state and cannot be resumed by
-the new command. Its recovered partial report remains useful evidence, not a
-complete snapshot. [The trial record](docs/verification.md#loris-trial-and-partial-recovery)
-distinguishes it from the successful small-repo and recorded-data checks.
+The historical partial Loris run predates durable fetch state and cannot be
+resumed by the new command. Its recovered report remains useful evidence, not a
+complete snapshot. A later complete fetch stopped partway through duplicate
+review. [The trial record](docs/verification.md#loris-trials-and-replay) records
+both runs and the duplicate-nomination replay.
 
 For ongoing development, read [the handoff](docs/handoff.md) before choosing
-the next task. It records the uncommitted cleanup and remaining operational work.
+the next task. It records the current implementation, saved trial artifacts,
+and remaining limits.

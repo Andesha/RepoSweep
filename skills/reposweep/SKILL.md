@@ -45,6 +45,19 @@ Resume skips valid completed records. It publishes normalized artifacts and
 updates `latest` only after the entire listing has been fetched, classified, and
 rendered. Ask before starting a different costly sweep.
 
+When recovery deliberately uses only a subset of the frozen listing, normalize
+and classify that subset first, then record its incompleteness:
+
+```sh
+sh <skill-dir>/scripts/mark-partial.sh <run> <listed-count> '<reason>'
+sh <skill-dir>/scripts/report.sh <run>
+```
+
+`mark-partial.sh` requires existing `items.jsonl` and `verdicts.jsonl`, refuses a
+listed count below the included count, and changes only `meta.json`. Use it for
+an explicit partial recovery, not as a shortcut around a resumable fetch. The
+report will preserve the incomplete-snapshot warning when regenerated.
+
 Read `<run>/meta.json` for the repository, resolved thresholds, and label
 mapping. These are frozen for the run. Repository configuration is numeric
 `KEY=value` data, never executable shell.

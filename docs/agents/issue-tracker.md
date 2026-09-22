@@ -4,9 +4,9 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 The commands below describe mechanics, not authorization. Obtain explicit user
 approval before claiming, creating, commenting on, relabelling, or closing an
-issue. A RepoSweep trial makes no tracker writes. For cleanup follow-ups, consult
-`docs/handoff.md` and `docs/verification.md`: issue status may lag implementation
-in the uncommitted working tree.
+issue. A RepoSweep trial makes no tracker writes. For follow-up work, consult
+`docs/handoff.md` and `docs/verification.md`; issue status may lag the current
+branch or working tree.
 
 ## Conventions
 

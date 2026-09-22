@@ -1,7 +1,8 @@
 # Verification and issue coverage
 
-Checked on 2026-09-06, on `cleanup/presentation-ready`. These are implementation
-and verification notes, not claims that the GitHub issues have been closed.
+Updated 2026-09-22 on `main`. These are implementation and verification notes.
+Tracker status can still lag local work, so check the linked issues before making
+tracker changes.
 
 ## Issue coverage
 
@@ -14,6 +15,9 @@ and verification notes, not claims that the GitHub issues have been closed.
 | [#16](https://github.com/Andesha/RepoSweep/issues/16) | Issue/PR judgment references and `review.sh next/apply`. Batches are bounded to 20; writes are locked, validated, and atomic. Completed item judgments are skipped. |
 | [#17](https://github.com/Andesha/RepoSweep/issues/17) | Separate pair review with both bodies. Rejections preserve the bin; confirmations use the oldest canonical, flatten groups, and respect wontfix. Both outcomes are checkpointed. |
 | [#18](https://github.com/Andesha/RepoSweep/issues/18) | Offline faceted queue, live filter counts, search, native keyboard-accessible accordions, canonical links, frozen-threshold health summary, pending-review status, mobile layout, and print-only publishing instructions. |
+| [#20](https://github.com/Andesha/RepoSweep/issues/20) | Stable snapshot completeness metadata, persistent incomplete-snapshot warnings, and a guarded command for marking an explicitly recovered subset. |
+| [#21](https://github.com/Andesha/RepoSweep/issues/21) | Durable listings and per-item records, visible fetch progress, status and resume commands, complete-snapshot gating for `latest`, and an offline interruption/recovery test. |
+| [#22](https://github.com/Andesha/RepoSweep/issues/22) | Pending item, pair, and batch counts before review, with explicit permission to stop at a preliminary report. |
 | [#23](https://github.com/Andesha/RepoSweep/issues/23) | Duplicate nomination drops generic title words and tokens common within each kind, retains same-kind endpoint caps, and exposes overlap scores and shared-token evidence. Focused fixtures cover useful matches, generic false positives, caps, and cross-kind rejection. |
 | [#24](https://github.com/Andesha/RepoSweep/issues/24) | Reports call mechanically selected stale items closure candidates, state that maintainers must inspect and confirm closure, and retain rationale showing inactivity, threshold, and queued-work status. No additional semantic-review stage was added. |
 
@@ -67,51 +71,55 @@ jq -c -L skills/reposweep/scripts \
   -f skills/reposweep/scripts/normalize.jq examples/github-sample.jsonl
 ```
 
-## Loris trial and partial recovery
+## Loris trials and replay
 
-A separate saved Pi session ran the skill against `aces/Loris` on 2026-09-06,
-using `openai-codex/gpt-6-astra` with reasoning `low`. It used the existing
-checkout, without source, Git, or tracker changes.
+The saved checkout is `/home/tk11br/Documents/neuro/Loris`. These historical
+runs predate durable fetch state, so the new resume command cannot resume them.
 
-The initial repository query reported 559 issues and 140 PRs; the subsequent
-paginated listing contained 697 items. Those were separate live reads, not one
-atomic count. The child agent set a **200-second shell-tool timeout**, and the
-fetch did not finish within it. This was a trial-execution limit, not evidence
-that GitHub returned an error or that the adapter could not complete.
+### Interrupted run and partial recovery
 
-The interrupted run retained 313 complete raw records in its lock directory.
-At the user's request, the parent session copied those records to a separate
-partial run, normalized and mechanically classified them, and rendered HTML.
-The interrupted run was preserved. No new fetch or model session was launched
-for this recovery.
+The first Pi session ran the skill on 2026-09-06. A paginated listing contained
+697 items. The child agent set a 200-second shell-tool timeout and stopped after
+recording 313 complete responses. This was a caller limit, not a GitHub error.
 
-| Recovered subset | Count |
-| --- | ---: |
-| Included items / listed items | 313 / 697 |
-| Issues / PRs included | 210 / 103 |
-| Close-as-stale proposals | 55 |
-| Flag-for-review proposals | 11 |
-| Needs-rebase proposals | 9 |
-| Needs-triage | 238 |
-| Item judgments still pending | 237 |
-| Duplicate pairs still pending | 329 |
+A separate `20260906T042243Z-partial` run recovered those 313 records without a
+new fetch. It contains 210 issues, 103 PRs, 237 pending item judgments, and 329
+pending duplicate comparisons. Its old `meta.partial` field and HTML warning
+were added by hand. The source run and recovered report remain historical
+evidence. New recovered subsets use `meta.snapshot`, `mark-partial.sh`, and the
+shared renderer instead.
 
-No item judgment or duplicate confirmation was completed on Loris. Its proposals
-are mechanical and the subset is not representative. Chrome rendered all 313
-records without page errors, and the generated report visibly warns that the
-snapshot is incomplete and unreviewed.
+### Complete fetch and interrupted review
 
-Recovery added a `meta.partial` object and an explicit HTML warning **by hand**.
-The current renderer does not interpret `meta.partial`; rerendering that run
-would remove the warning. No supported partial-fetch resume/recovery command
-was implemented. Follow-up work should address this rather than treating the
-one-off recovery as a completed feature.
+A later `20260907T000242Z` run fetched all 697 listed items, including 557 issues
+and 140 PRs. A second agent session completed all item judgments and began
+reviewing 855 duplicate nominations. The provider usage limit stopped it with 7
+pairs confirmed, 323 rejected, and 525 pending. Its process exited with status
+1. The snapshot fetch completed, but review did not.
 
-The Pi process exited with status 0 after reporting the blocker. That is not
-sweep completion. Its original `result.md` predates the recovered report. See
-[the handoff](handoff.md#first-external-trial-acesloris) for local session, log,
-and report paths. The trial remains incomplete; a full external-backlog agent
-review and its usage cost have not been validated.
+Do not describe either saved run as a finished Loris sweep. The partial run lacks
+a complete snapshot. The later run has an unfinished duplicate queue.
+
+### Duplicate nomination replay
+
+On 2026-09-22, the updated nomination code classified copies of the saved items
+and metadata. It made no network, tracker, Git, or saved-run changes.
+
+| Saved snapshot | Old pairs | New pairs | Change | Runtime | Peak memory |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 313-item partial subset | 329 | 292 | -37 | 0.40s | 5.4 MiB |
+| 697-item complete snapshot | 855 | 833 | -22 | 1.91s | 8.1 MiB |
+
+For the complete snapshot, 827 old pairs remained. All 7 confirmed pairs and all
+323 rejected pairs remained nominated. The common-token changes removed 28 old
+pairs and added 6 because freed endpoint capacity admitted different pairs.
+Several removed examples shared generic words such as `fix`, `configuration`,
+or a broad module name while describing different work.
+
+The replay shows a modest noise reduction, not a large workload reduction. Pair
+nomination remains quadratic, and 833 comparisons would still be expensive. The
+user selected this saved-data replay instead of a fresh live recovery trial, so
+durable resume has offline fake-adapter coverage but no medium-sized live trial.
 
 ## Final review
 
