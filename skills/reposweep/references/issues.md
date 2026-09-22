@@ -3,7 +3,10 @@
 Judge only rows returned by `review.sh next`. The mechanical pass has already
 handled maintainer labels and inactivity. Its first-match ladder is
 `wontfix → possible-duplicate → needs-info → close-as-stale → ready-for-agent → ready-for-human → needs-triage`.
-The separate duplicate pass handles the second rung.
+The separate duplicate pass handles the second rung. A mechanical
+`close-as-stale` result means only that the issue exceeded its inactivity
+threshold and was not queued. It is a closure candidate, not a claim that the
+issue is obsolete; the maintainer must inspect and confirm closure.
 
 Read the title and body, then any linked requirements or discussion needed to
 choose an action. Decide the first supported outcome:

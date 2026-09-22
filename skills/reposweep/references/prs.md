@@ -6,6 +6,8 @@ Only small, explicitly clean, unqueued PRs past their idle window can receive a
 mechanical close proposal. Old large, medium, conflicted, blocked, and unknown
 PRs go to review. Fresh conflicts need rebase. Fresh clean PRs stay in
 `needs-triage` with a `healthy` flag. Draft and bot status are facets, not exclusions.
+A mechanical `close-as-stale` result is only a closure candidate; it does not
+prove obsolescence, and the maintainer must inspect and confirm closure.
 
 You receive the unresolved subset, usually an unknown or blocked merge state.
 Read the description and, as needed, comments or checks. Use the repository in

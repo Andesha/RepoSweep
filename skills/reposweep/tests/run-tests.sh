@@ -38,6 +38,9 @@ check 'kinds retain only their own fields, and sizing/long-lived facets are deri
   any(.[]; .item.number==202 and .item.long_lived)'
 check 'rule provenance and judgment flags are meaningful' '
   all(.[]; (.matched_rule|length)>0) and ([.[]|select(.needs_agent)|.item.number] == [107,109,110])'
+check 'stale candidate reasons state inactivity, threshold, and queue status' '
+  all(.[] | select(.bin=="close-as-stale");
+    (.reason | test("[Ii]dle [0-9]+d") and test("beyond the [0-9]+d window") and test("not queued")))'
 cp "$V" "$work/first.jsonl"
 # Refuse an accidental restart that would wipe agent work.
 if sh "$SCRIPTS/classify.sh" "$run" >/dev/null 2>&1; then echo 'FAIL: overwrote verdicts' >&2; exit 1; fi
@@ -153,6 +156,8 @@ jq -e '.snapshot.complete == true and .snapshot.included == .snapshot.listed' "$
 sh "$SCRIPTS/mark-partial.sh" "$run" 697 'Fetch interrupted during PR detail retrieval.'
 jq -e --argjson included "$included" '.snapshot == {complete:false,included:$included,listed:697,reason:"Fetch interrupted during PR detail retrieval."}' "$run/meta.json" >/dev/null
 sh "$SCRIPTS/report.sh" "$run" >/dev/null
+grep -q 'Stale closure candidates' "$run/report.html"
+grep -q 'a maintainer must' "$run/report.html"
 cp "$run/report.html" "$work/partial.html"
 sh "$SCRIPTS/report.sh" "$run" >/dev/null
 cmp "$work/partial.html" "$run/report.html"

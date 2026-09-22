@@ -41,13 +41,15 @@ The script itself does not call an LLM.
 | Issues | Pull requests |
 | --- | --- |
 | Ready for agent, ready for human | Needs rebase, flag for review |
-| Needs information, possible duplicate, won't fix, close as stale | Same shared actions |
+| Needs information, possible duplicate, won't fix, stale closure candidates | Same shared actions |
 | Needs triage when no other action is supported | Needs triage, with a healthy flag for fresh clean PRs |
 
 Rules are first-match, not scores. A queued item is exempt from staleness.
 Only **small, explicitly clean, idle PRs** can receive a stale-close proposal;
 large, conflicted, blocked, or unknown old PRs go to human review. Drafts and
-bots are included and filterable. Age alone is never proof of obsolescence.
+bots are included and filterable. Stale closure candidates are selected from
+inactivity, the configured threshold, and queued-work status. Age alone is never
+proof of obsolescence; a maintainer must inspect and confirm every closure.
 
 Title overlap only nominates same-kind pairs. The agent reads both descriptions
 before confirming a duplicate; the lowest item number is canonical. Duplicate

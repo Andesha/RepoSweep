@@ -38,7 +38,7 @@ def classify($m):
     elif .conflicted and (past_due($m) | not) then
       verdict("needs-rebase"; "conflicted-fresh"; "Merge state is \(.mergeable_state); ask the author to update the branch."; false)
     elif past_due($m) and .size_bucket == "small" and .mergeable_state == "clean" then
-      verdict("close-as-stale"; "small-clean-idle"; "Small, clean PR; idle \(.idle_days)d, beyond the \($window)d window."; false)
+      verdict("close-as-stale"; "small-clean-idle"; "Small, clean PR; idle \(.idle_days)d, beyond the \($window)d window; not queued."; false)
     elif past_due($m) then
       verdict("flag-for-review"; "past-stale-not-closeable"; "Idle \(.idle_days)d; size=\(.size_bucket), merge state=\(.mergeable_state). Needs a human keep-or-close decision."; false)
     elif .mergeable_state == "clean" then

@@ -563,8 +563,10 @@
           <div id="thresholds"></div>
           <p>
             Past due uses inactivity and this run's frozen thresholds. Queued
-            work is exempt. A stale proposal is not proof that an item is
-            obsolete. Duplicate proposals need a maintainer's confirmation.
+            work is exempt. Stale closure candidates are selected mechanically;
+            they are not proof that an item is obsolete, and a maintainer must
+            inspect and confirm each closure. Duplicate proposals also need a
+            maintainer's confirmation.
           </p>
         </details>
         <p>
@@ -591,7 +593,7 @@
         ["needs-rebase", "Needs rebase", "#af642e"],
         ["flag-for-review", "Flag for review", "#567a96"],
         ["possible-duplicate", "Possible duplicate", "#a15c84"],
-        ["close-as-stale", "Close as stale", "#aa6545"],
+        ["close-as-stale", "Stale closure candidates", "#aa6545"],
         ["wontfix", "Won’t fix", "#747b78"],
         ["needs-triage", "Needs triage", "#7d8580"],
       ];
