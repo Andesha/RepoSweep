@@ -538,6 +538,7 @@
           <div class="composition" id="composition"></div>
           <div class="review-status" id="review-status"></div>
         </div>
+        <div class="notice" id="snapshot-warning" role="alert" hidden></div>
         <div class="notice" id="notice" hidden></div>
       </header>
       <noscript
@@ -637,10 +638,17 @@
         `${issues} issues · ${rows.length - issues} pull requests`;
       const status = document.getElementById("review-status");
       status.classList.toggle("pending", judgments + pairs > 0);
+      const snapshot = meta.snapshot;
+      const incomplete = !snapshot || snapshot.complete !== true;
       status.innerHTML =
         judgments + pairs
           ? `<b>Preliminary report</b>${judgments} item judgments · ${pairs} duplicate pairs pending`
           : "<b>Review complete</b>Every pending judgment has been recorded";
+      const warning = document.getElementById("snapshot-warning");
+      if (incomplete) {
+        warning.hidden = false;
+        warning.textContent = `Incomplete snapshot — ${snapshot?.included ?? rows.length} included / ${snapshot?.listed ?? "unknown"} listed. ${snapshot?.reason || "Fetch completeness has not been recorded."} Review completion does not mean the backlog is complete.`;
+      }
       if (meta.demo) {
         const notice = document.getElementById("notice");
         notice.hidden = false;
@@ -653,7 +661,7 @@
           "The mechanical pass is complete. Rows marked “pending” may change after agent review. Title matches alone are not duplicate findings.";
       }
       document.getElementById("snapshot").textContent =
-        `Run ${meta.run_id}. Fetch finished ${meta.snapshot_at || meta.swept_at}. GitHub pagination is a live read, not an atomic tracker snapshot.`;
+        `Run ${meta.run_id}. ${incomplete ? "Partial fetch" : "Fetch finished"} ${meta.snapshot_at || meta.swept_at}. ${snapshot?.included ?? rows.length} included / ${snapshot?.listed ?? "unknown"} listed. GitHub pagination is a live read, not an atomic tracker snapshot.`;
       document.getElementById("thresholds").innerHTML = Object.entries(
         meta.thresholds,
       )

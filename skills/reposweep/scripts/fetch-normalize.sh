@@ -27,7 +27,7 @@ jq -c -L "$HERE" --slurpfile meta "$RUN_DIR/meta.json" -f "$HERE/normalize.jq" \
   "$lock/github-items.jsonl" > "$lock/items.jsonl"
 jq -s -e 'map(.number) | length == (unique | length)' "$lock/items.jsonl" >/dev/null
 jq --arg snapshot_at "$(swept_at)" --slurpfile items "$lock/items.jsonl" \
-  '.snapshot_at = $snapshot_at | .counts = {items: ($items|length), issues: ([$items[]|select(.kind=="issue")]|length), prs: ([$items[]|select(.kind=="pr")]|length)}' \
+  '.snapshot_at = $snapshot_at | .counts = {items: ($items|length), issues: ([$items[]|select(.kind=="issue")]|length), prs: ([$items[]|select(.kind=="pr")]|length)} | .snapshot = {complete: true, included: ($items|length), listed: ($items|length), reason: null}' \
   "$RUN_DIR/meta.json" > "$lock/meta.json"
 mv "$lock/github-items.jsonl" "$RUN_DIR/github-items.jsonl"
 mv "$lock/meta.json" "$RUN_DIR/meta.json"

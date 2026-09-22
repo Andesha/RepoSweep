@@ -118,4 +118,18 @@ printf '%s\n' '{"stage":"duplicates","decisions":[{"numbers":[108,110],"confirme
 sh "$SCRIPTS/review.sh" apply "$run" "$work/batch.json"
 check 'merging groups replaces an incoming-only members original rationale with duplicate evidence' '
   any(.[]; .item.number==109 and .duplicate_of==108 and .bin=="possible-duplicate" and (.reason|contains("via #109/#110")))'
-printf '\n%d artifact checks passed; config precedence, batch rejection, and resume checks passed.\n' "$checks"
+# Snapshot completeness is independent of item and pair review checkpoints.
+included=$(jq -s length "$run/items.jsonl")
+jq --argjson included "$included" '.snapshot={complete:true,included:$included,listed:$included,reason:null}' "$run/meta.json" > "$work/meta.json"
+mv "$work/meta.json" "$run/meta.json"
+sh "$SCRIPTS/report.sh" "$run" >/dev/null
+jq -e '.snapshot.complete == true and .snapshot.included == .snapshot.listed' "$run/meta.json" >/dev/null
+sh "$SCRIPTS/mark-partial.sh" "$run" 697 'Fetch interrupted during PR detail retrieval.'
+jq -e --argjson included "$included" '.snapshot == {complete:false,included:$included,listed:697,reason:"Fetch interrupted during PR detail retrieval."}' "$run/meta.json" >/dev/null
+sh "$SCRIPTS/report.sh" "$run" >/dev/null
+cp "$run/report.html" "$work/partial.html"
+sh "$SCRIPTS/report.sh" "$run" >/dev/null
+cmp "$work/partial.html" "$run/report.html"
+grep -q 'Incomplete snapshot' "$run/report.html"
+if sh "$SCRIPTS/mark-partial.sh" "$run" 1 'Bad count' >/dev/null 2>&1; then echo 'FAIL: accepted undersized listed count' >&2; exit 1; fi
+printf '\n%d artifact checks passed; config precedence, batch rejection, snapshot metadata, and rerender checks passed.\n' "$checks"
