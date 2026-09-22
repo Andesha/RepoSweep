@@ -1,8 +1,10 @@
 # Duplicate review
 
-`review.sh next` supplies same-kind candidate pairs, including both titles and
-recorded bodies. Numbers are ordered `[older, newer]`. Read both items, even if
-the titles are identical. Shared components or words are not semantic sameness.
+`review.sh next` supplies same-kind candidate pairs, including both titles,
+recorded bodies, overlap score, and the significant shared title tokens. Pairs
+are ordered by descending score; numbers are ordered `[older, newer]`. Read both
+items, even if the titles are identical. Shared components or words are not
+semantic sameness.
 
 Confirm only when they describe the same underlying failure or requested
 change. Different reproduction conditions, expected behavior, or intended

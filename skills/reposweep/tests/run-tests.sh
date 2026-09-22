@@ -65,7 +65,15 @@ jq -s '
      ($issue + {number:6,title:"Exact stale boundary",updated_at:"2025-12-07T00:00:00Z"}),
      ($issue + {number:7,title:"Exact waiting boundary",carried_labels:["waiting"],updated_at:"2025-12-25T00:00:00Z"}),
      ($pr + {number:8,title:$issue.title,updated_at:"2025-12-28T00:00:00Z"}),
-     ($issue + {number:9}),($issue + {number:10}),($issue + {number:11}),($issue + {number:12})][]
+     ($issue + {number:9,title:"Alpha beta gamma delta"}),
+     ($issue + {number:10,title:"Alpha beta epsilon zeta"}),
+     ($issue + {number:11,title:"Gamma delta eta theta"}),
+     ($issue + {number:12,title:"Epsilon zeta eta theta"}),
+     ($issue + {number:13,title:"Update documentation request"}),
+     ($issue + {number:14,title:"Documentation update request"}),
+     ($issue + {number:15,title:"Request documentation update"}),
+     ($issue + {number:16,title:"Tokenizer crashes on malformed unicode input"}),
+     ($issue + {number:17,title:"Malformed unicode input crashes tokenizer"})][]
 ' "$SKILL/tests/fixtures/items.jsonl" > "$run/items.jsonl"
 rm "$V"
 sh "$SCRIPTS/classify.sh" "$run" >/dev/null
@@ -73,11 +81,17 @@ check 'unknown, blocked, large, and conflicted stale PRs never become close prop
   [.[]|select(.item.number==1 or .item.number==2 or .item.number==3 or .item.number==5)|.bin] == ["flag-for-review","flag-for-review","flag-for-review","flag-for-review"]'
 check 'queued PR and exact idle boundaries do not go stale; label mapping applies' '
   [.[]|select(.item.number==4 or .item.number==6 or .item.number==7)|.bin] == ["needs-triage","needs-triage","needs-info"]'
-check 'dense title matches keep top candidates, with a cap at both endpoints and no cross-kind nominations' '
+check 'useful matches survive while common titles, cross-kind pairs, and excess partners do not' '
   [.[] as $v | $v.duplicate_candidates[] | [.number,$v.item.number]] as $pairs
-  | ([$pairs[]|select(.[0]>=9 and .[1]>=9)]|length)==2
+  | ([$pairs[]|select(.[0]>=9 and .[0]<=12 and .[1]>=9 and .[1]<=12)]|length)==2
+    and any($pairs[]; . == [16,17])
+    and all($pairs[]; (.[0]<13 or .[0]>15) and (.[1]<13 or .[1]>15))
     and all($pairs[]; .[0]!=8 and .[1]!=8)
     and ($pairs|flatten|group_by(.)|all(.[];length<=1))'
+check 'candidate ordering exposes score and shared-token evidence' '
+  any(.[]; .item.number==17 and
+    ([.duplicate_candidates[0] | .number,.score,.shared_tokens] ==
+      [16,1,["crashes","input","malformed","tokenizer","unicode"]]))'
 
 # Restore the normal run and review it in batches, preserving unrelated rows.
 cp "$work/first.jsonl" "$V"
@@ -101,6 +115,9 @@ if sh "$SCRIPTS/review.sh" apply "$run" "$work/batch.json" >/dev/null 2>&1; then
 cmp "$V" "$work/checkpoint.jsonl"
 jq -s '{stage:"judgment",decisions:[.[]|select(.needs_agent)|{number:.item.number,bin:"ready-for-agent",reason:"Explicit reproduction and expected behavior."}]}' "$V" > "$work/batch.json"
 sh "$SCRIPTS/review.sh" apply "$run" "$work/batch.json"
+sh "$SCRIPTS/review.sh" next "$run" 2 > "$work/next.json"
+jq -e '.stage=="duplicates" and all(.pairs[]; (.score|type)=="number" and (.shared_tokens|type)=="array")' "$work/next.json" >/dev/null
+printf 'ok - duplicate review exposes nomination score and shared-token evidence\n'
 printf '%s\n' '{"stage":"duplicates","decisions":[{"numbers":[109,110],"confirmed":true,"reason":"Same missing-config crash and reproduction."},{"numbers":[206,207],"confirmed":false,"reason":"Different export formats despite similar titles."}]}' > "$work/batch.json"
 sh "$SCRIPTS/review.sh" apply "$run" "$work/batch.json"
 check 'confirmed duplicate uses the older canonical; rejected nomination leaves bin and pointer unchanged' '

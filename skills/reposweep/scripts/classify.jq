@@ -6,15 +6,26 @@ def tokens:
   | . - ["the","and","for","with","from","this","that","there","when","what",
          "cannot","does","doesnt","not","add","support","using","into","are",
          "was","has","have","will","can","should","could","would","but","all",
-         "any","our","your","issue","request","please"] | unique;
+         "any","our","your","issue","request","please","bug","feature","fix",
+         "proposal","task","update"] | unique;
 def candidates($items; $t):
   if $t.DEDUP_MAX_PARTNERS == 0 then [] else
-  ($items | map({number, kind, tokens: (.title | tokens)})) as $tokens
+  ($items | map({number, kind, tokens: (.title | tokens)})) as $tokenized
+  # Ignore tokens present in at least three titles and 10% of their kind. They
+  # identify the backlog more often than a specific duplicate.
+  | ($tokenized | group_by(.kind) | map(
+      . as $kind_items
+      | {key: .[0].kind,
+         value: ([.[].tokens[]] | group_by(.)
+           | map(select(length >= 3 and length * 10 >= ($kind_items | length)) | .[0]))})
+      | from_entries) as $common
+  | ($tokenized | map(.tokens -= $common[.kind])) as $tokens
   | [range(0; $tokens | length) as $i | $tokens[$i] as $a
       | $tokens[$i+1:][] as $b | select($a.kind == $b.kind)
-      | ($a.tokens - ($a.tokens - $b.tokens) | length) as $shared
-      | select($shared > 0 and $shared >= $t.DEDUP_MIN_SHARED_TOKENS)
-      | {numbers: [$a.number, $b.number], score: ($shared / ([$a.tokens[], $b.tokens[]] | unique | length))}]
+      | ($a.tokens - ($a.tokens - $b.tokens)) as $shared
+      | select(($shared | length) >= $t.DEDUP_MIN_SHARED_TOKENS)
+      | {numbers: [$a.number, $b.number], shared_tokens: $shared,
+         score: (($shared | length) / ([$a.tokens[], $b.tokens[]] | unique | length))}]
   | sort_by(-.score, .numbers)
   # Greedy top-scoring edges enforce the partner cap on BOTH endpoints.
   | reduce .[] as $pair ({counts: {}, pairs: []};
@@ -32,7 +43,7 @@ $meta[0] as $m
 | $v + {
     duplicate_of: null,
     duplicate_candidates: [$pairs[] | select(.numbers[1] == $item.number)
-      | {number: .numbers[0], score, confirmed: null}],
+      | {number: .numbers[0], score, shared_tokens, confirmed: null}],
     inferred_type: null,
     flags: [
       (if any($item.carried_labels[]; . == "good-first-issue" or . == "good first issue") then "good-first-issue" else empty end),

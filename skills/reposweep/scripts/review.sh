@@ -37,8 +37,10 @@ case "$command" in
           {stage: "judgment", items: ([$rows[] | select(.needs_agent) | context(.)][:$count])}
         else
           [$rows[] as $v | $v.duplicate_candidates[] | select(.confirmed == null)
-            | .number as $older | {numbers: [$older, $v.item.number],
-                older: ([$rows[] | select(.item.number == $older)][0] | context(.)), newer: context($v)}] as $pairs
+            | .number as $older | {numbers: [$older, $v.item.number], score,
+                shared_tokens: (.shared_tokens // []),
+                older: ([$rows[] | select(.item.number == $older)][0] | context(.)), newer: context($v)}]
+          | sort_by(-(.score // 0), .numbers) as $pairs
           | if ($pairs|length) > 0 then {stage: "duplicates", pairs: $pairs[:$count]}
             else {stage: "complete", items: []} end
         end)' "$RUN_DIR/verdicts.jsonl";;

@@ -14,6 +14,7 @@ and verification notes, not claims that the GitHub issues have been closed.
 | [#16](https://github.com/Andesha/RepoSweep/issues/16) | Issue/PR judgment references and `review.sh next/apply`. Batches are bounded to 20; writes are locked, validated, and atomic. Completed item judgments are skipped. |
 | [#17](https://github.com/Andesha/RepoSweep/issues/17) | Separate pair review with both bodies. Rejections preserve the bin; confirmations use the oldest canonical, flatten groups, and respect wontfix. Both outcomes are checkpointed. |
 | [#18](https://github.com/Andesha/RepoSweep/issues/18) | Offline faceted queue, live filter counts, search, native keyboard-accessible accordions, canonical links, frozen-threshold health summary, pending-review status, mobile layout, and print-only publishing instructions. |
+| [#23](https://github.com/Andesha/RepoSweep/issues/23) | Duplicate nomination drops generic title words and tokens common within each kind, retains same-kind endpoint caps, and exposes overlap scores and shared-token evidence. Focused fixtures cover useful matches, generic false positives, caps, and cross-kind rejection. |
 
 Issues #2–#11 supplied the design decisions. The selected queue layout from
 [the prototype](https://github.com/Andesha/RepoSweep/blob/prototype/report-8/prototypes/report.prototype.html)
@@ -21,7 +22,7 @@ is retained; its mock-data mistakes are not carried into classification.
 
 ## Checks performed
 
-- `sh skills/reposweep/tests/run-tests.sh`: 12 grouped artifact assertions plus
+- `sh skills/reposweep/tests/run-tests.sh`: 13 grouped artifact assertions plus
   config precedence, label mapping, overwrite refusal, invalid/repeated batch
   rejection, and resume checks. No network or LLM.
 - ShellCheck passed for scripts, tests, and demo generation. Dynamic source
