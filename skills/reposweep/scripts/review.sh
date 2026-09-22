@@ -3,13 +3,27 @@
 set -eu
 HERE=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 . "$HERE/lib.sh"
-command=${1:?usage: review.sh next RUN_DIR [COUNT] | apply RUN_DIR BATCH_JSON}
+usage='review.sh workload RUN_DIR [COUNT] | next RUN_DIR [COUNT] | apply RUN_DIR BATCH_JSON'
+command=${1:?usage: $usage}
 RUN_DIR=${2:?missing RUN_DIR}
 case "$command" in
-  next)
+  workload|next)
     count=${3:-15}
     case "$count" in ''|*[!0-9]*) echo 'review: count must be 1-20' >&2; exit 1;; esac
     [ "$count" -ge 1 ] && [ "$count" -le 20 ] || { echo 'review: count must be 1-20' >&2; exit 1; }
+    if [ "$command" = workload ]; then
+      jq -s --argjson count "$count" '
+        ([.[] | select(.needs_agent)] | length) as $items
+        | ([.[].duplicate_candidates[]? | select(.confirmed == null)] | length) as $pairs
+        | {batch_size: $count,
+           item_pending: $items,
+           item_batches: (($items + $count - 1) / $count | floor),
+           duplicate_pending: $pairs,
+           duplicate_batches: (($pairs + $count - 1) / $count | floor)}
+        | .total_batches = (.item_batches + .duplicate_batches)
+      ' "$RUN_DIR/verdicts.jsonl"
+      exit 0
+    fi
     raw="$RUN_DIR/github-items.jsonl"
     [ -f "$raw" ] || raw=/dev/null
     jq -s --slurpfile raw "$raw" --slurpfile meta "$RUN_DIR/meta.json" --argjson count "$count" '
@@ -34,5 +48,5 @@ case "$command" in
     jq -cs --slurpfile batch "$batch" -f "$HERE/review.jq" "$RUN_DIR/verdicts.jsonl" > "$lock/verdicts.jsonl"
     mv "$lock/verdicts.jsonl" "$RUN_DIR/verdicts.jsonl"
     printf 'review: batch saved; rerun next to resume, report.sh to refresh HTML\n' >&2;;
-  *) echo 'usage: review.sh next RUN_DIR [COUNT] | apply RUN_DIR BATCH_JSON' >&2; exit 1;;
+  *) echo "usage: $usage" >&2; exit 1;;
 esac

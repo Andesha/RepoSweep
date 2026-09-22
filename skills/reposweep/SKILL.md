@@ -21,6 +21,10 @@ For a new sweep, run:
 sh <skill-dir>/scripts/reposweep <target-repo-directory>
 ```
 
+The mechanical summary uses a review batch size of 15. To select another size
+from 1–20 for its workload calculation and suggested review command, set
+`REPOSWEEP_REVIEW_BATCH_SIZE` for this invocation.
+
 It prints a run directory and creates a preliminary report there. For a resumed
 sweep, reuse the user's run, or resolve `<target>/.reposweep/runs/latest`. Start
 a new run only when the user wants a new snapshot. The snapshot contains all
@@ -45,7 +49,23 @@ Read `<run>/meta.json` for the repository, resolved thresholds, and label
 mapping. These are frozen for the run. Repository configuration is numeric
 `KEY=value` data, never executable shell.
 
-## 2. Finish the flagged item judgments
+## 2. Check the workload, then finish flagged item judgments
+
+Choose a batch size from 1–20 and inspect the remaining work before requesting
+any item bodies or beginning agent judgment:
+
+```sh
+sh <skill-dir>/scripts/review.sh workload <run> 15
+```
+
+Report the pending item judgments, duplicate comparisons, and expected batches
+to the maintainer. Batch counts are calculated separately for the two stages
+because a batch cannot mix item and duplicate decisions. Ask whether to proceed
+when the workload is substantial. If the maintainer stops, deliver the existing
+HTML as a clearly labelled preliminary report; do not clear pending rows or call
+the review complete.
+
+To proceed, use the same selected batch size:
 
 ```sh
 sh <skill-dir>/scripts/review.sh next <run> 15

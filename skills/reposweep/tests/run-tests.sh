@@ -81,11 +81,17 @@ check 'dense title matches keep top candidates, with a cap at both endpoints and
 
 # Restore the normal run and review it in batches, preserving unrelated rows.
 cp "$work/first.jsonl" "$V"
+sh "$SCRIPTS/review.sh" workload "$run" 2 > "$work/workload.json"
+jq -e '. == {batch_size:2,item_pending:3,item_batches:2,duplicate_pending:2,duplicate_batches:1,total_batches:3}' "$work/workload.json" >/dev/null
+printf 'ok - workload reports pending counts and rounded-up stage batches\n'
 sh "$SCRIPTS/review.sh" next "$run" 1 > "$work/next.json"
 jq -e '.stage=="judgment" and (.items|length)==1 and .items[0].verdict.item.number==107' "$work/next.json" >/dev/null
 printf '%s\n' '{"stage":"judgment","decisions":[{"number":107,"bin":"needs-info","reason":"Missing reproduction steps."}]}' > "$work/batch.json"
 sh "$SCRIPTS/review.sh" apply "$run" "$work/batch.json"
 check 'judgment checkpoint updates only the selected row' 'any(.[]; .item.number==107 and .bin=="needs-info" and .needs_agent==false) and any(.[]; .item.number==109 and .needs_agent)'
+sh "$SCRIPTS/review.sh" workload "$run" 2 > "$work/workload.json"
+jq -e '. == {batch_size:2,item_pending:2,item_batches:1,duplicate_pending:2,duplicate_batches:1,total_batches:2}' "$work/workload.json" >/dev/null
+printf 'ok - workload reflects resumed checkpoints and exact batches\n'
 cp "$V" "$work/checkpoint.jsonl"
 if sh "$SCRIPTS/review.sh" apply "$run" "$work/batch.json" >/dev/null 2>&1; then echo 'FAIL: accepted repeated decision' >&2; exit 1; fi
 cmp "$V" "$work/checkpoint.jsonl"
@@ -102,6 +108,9 @@ check 'confirmed duplicate uses the older canonical; rejected nomination leaves 
   any(.[]; .item.number==207 and .duplicate_of==null and .bin=="needs-triage" and .matched_rule=="healthy")'
 sh "$SCRIPTS/review.sh" next "$run" > "$work/next.json"
 jq -e '.stage=="complete"' "$work/next.json" >/dev/null
+sh "$SCRIPTS/review.sh" workload "$run" 15 > "$work/workload.json"
+jq -e '. == {batch_size:15,item_pending:0,item_batches:0,duplicate_pending:0,duplicate_batches:0,total_batches:0}' "$work/workload.json" >/dev/null
+printf 'ok - completed review has zero pending work and batches\n'
 # Three-way union, including wontfix precedence.
 jq -s 'map(select(.item.number==109 or .item.number==110)) | . + [.[1] | .item.number=111 | .bin="wontfix" | .duplicate_of=null | .duplicate_candidates=[{number:110,score:1,confirmed:null}]] | .[]' "$V" > "$work/cluster.jsonl"
 cp "$work/cluster.jsonl" "$V"
@@ -155,7 +164,9 @@ fake_run=$(find "$work/target/.reposweep/runs" -mindepth 1 -maxdepth 1 -type d |
 [ ! -e "$work/target/.reposweep/runs/latest" ]
 sh "$SCRIPTS/status.sh" "$fake_run" > "$work/status.json"
 jq -e '.fetch == {state:"interrupted",completed:2,total:3} and .classification.state == "not-started"' "$work/status.json" >/dev/null
-PATH="$work/bin:$PATH" REPOSWEEP_RETRY_DELAY=0 sh "$SCRIPTS/reposweep" resume "$fake_run" >/dev/null 2>&1
+PATH="$work/bin:$PATH" REPOSWEEP_RETRY_DELAY=0 REPOSWEEP_REVIEW_BATCH_SIZE=2 sh "$SCRIPTS/reposweep" resume "$fake_run" >/dev/null 2>"$work/resume.err"
+grep -q 'at batch size 2;' "$work/resume.err"
+grep -q 'review batches total' "$work/resume.err"
 [ -L "$work/target/.reposweep/runs/latest" ]
 sh "$SCRIPTS/status.sh" "$fake_run" > "$work/status.json"
 jq -e '.fetch == {state:"complete",completed:3,total:3} and .snapshot.complete and .classification.state == "complete"' "$work/status.json" >/dev/null

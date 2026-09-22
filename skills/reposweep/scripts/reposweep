@@ -22,8 +22,11 @@ finish_run() {
   fi
   rm -f "$RUNS/latest"
   ln -s "$(basename "$RUN")" "$RUNS/latest"
-  jq -rs --arg run "$RUN" '"reposweep: \(length) items; \([.[] | select(.needs_agent)] | length) judgments and \([.[].duplicate_candidates[] | select(.confirmed == null)] | length) duplicate pairs pending.\nReport: \($run)/report.html\nNo tracker changes made."' "$RUN/verdicts.jsonl" >&2
-  printf '\nContinue with: sh %s/review.sh next %s\n\n' "$HERE" "$RUN" >&2
+  batch_size=${REPOSWEEP_REVIEW_BATCH_SIZE:-15}
+  workload=$(sh "$HERE/review.sh" workload "$RUN" "$batch_size")
+  printf '%s\n' "$workload" | jq -r --arg run "$RUN" '
+    "reposweep: \(.item_pending) judgments (\(.item_batches) batches) and \(.duplicate_pending) duplicate pairs (\(.duplicate_batches) batches) pending at batch size \(.batch_size); \(.total_batches) review batches total.\nReport: \($run)/report.html\nNo tracker changes made."' >&2
+  printf '\nContinue with: sh %s/review.sh next %s %s\n\n' "$HERE" "$RUN" "$batch_size" >&2
   sh "$HERE/report.sh" --publish "$RUN" "$ROOT" >&2
   printf '%s\n' "$RUN"
 }
