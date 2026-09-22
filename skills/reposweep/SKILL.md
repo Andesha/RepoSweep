@@ -27,11 +27,19 @@ a new run only when the user wants a new snapshot. The snapshot contains all
 open issues and PRs, including drafts and bots.
 
 Allow the fetch to run for a large backlog: each PR needs a detail request,
-and some need a merge-state retry. Use the harness's long-running/background
-execution support or an adequate timeout rather than an arbitrary short limit.
-After an interruption, inspect the process and artifacts before retrying. Fetch
-resume is not supported; preserve recoverable raw responses before removing a
-stale lock. Ask before starting another costly sweep.
+and some need a merge-state retry. Progress is stored under `<run>/fetch/`, with
+the frozen listing in `list.jsonl` and one completed raw response per item in
+`records/`. After an interruption, first confirm no process still owns the run,
+then inspect it and resume without starting another snapshot:
+
+```sh
+sh <skill-dir>/scripts/reposweep status <run>
+sh <skill-dir>/scripts/reposweep resume <run>
+```
+
+Resume skips valid completed records. It publishes normalized artifacts and
+updates `latest` only after the entire listing has been fetched, classified, and
+rendered. Ask before starting a different costly sweep.
 
 Read `<run>/meta.json` for the repository, resolved thresholds, and label
 mapping. These are frozen for the run. Repository configuration is numeric

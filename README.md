@@ -86,6 +86,7 @@ A run lives at `.reposweep/runs/<UTC timestamp>/`. `latest` points to the newest
 successful mechanical run. Files include:
 
 - `meta.json`: repository, fetch timestamps, thresholds, label mappings, counts.
+- `fetch/`: durable listing and per-item raw responses used to resume fetching.
 - `github-items.jsonl`: recorded GitHub responses, including bodies for review.
 - `items.jsonl`: the normalized snapshot, independent of tracker field names.
 - `verdicts.jsonl`: one checkpointed verdict per item, including pair decisions.
@@ -97,13 +98,19 @@ is skipped. [The skill](skills/reposweep/SKILL.md) documents the bounded
 batch and atomically replaces the checkpoint; invalid batches leave it intact.
 Regenerate HTML after applying judgments with `report.sh RUN_DIR`.
 
-A run lock prevents concurrent writers. After a hard interruption, confirm no
-RepoSweep process is using the run before removing its `.lock/` directory.
-Preserve any complete raw responses there if you intend to recover a partial
-snapshot. Review checkpoints can resume; fetching does not yet support resume.
-A failed fetch normally requires a new sweep and does not replace `latest`.
-Old pre-checkpoint-format runs can still be opened as HTML, but start a new run
-to use the current review tools.
+A run lock prevents concurrent writers. After an interruption, confirm no
+RepoSweep process is using the run before removing a stale `.lock/` directory.
+Completed raw responses remain under `fetch/records/`. Inspect and resume with:
+
+```sh
+sh skills/reposweep/scripts/reposweep status RUN_DIR
+sh skills/reposweep/scripts/reposweep resume RUN_DIR
+```
+
+Resume skips completed item and PR detail responses. A failed or partial fetch
+does not replace `latest`; only a complete mechanical run does. Old runs created
+before durable fetch state can still be opened as HTML, but cannot use fetch
+resume.
 
 To share, send the HTML file. For GitHub Pages, `report.sh --publish RUN_DIR
 TARGET_REPO_DIRECTORY` prints two commands to copy and publish it under
@@ -123,8 +130,9 @@ sh examples/generate-demo.sh
 ```
 
 Focused offline checks cover classification, config precedence, duplicate
-nomination, and checkpoint integrity. Browser rendering and the GitHub adapter
-are checked end to end; see [verification and issue coverage](docs/verification.md).
+nomination, checkpoint integrity, and fake-GitHub interruption/recovery. Browser
+rendering and the GitHub adapter are checked end to end; see
+[verification and issue coverage](docs/verification.md).
 The report demo uses fictional decisions, not an LLM evaluation.
 
 Tracker-specific fetching and field translation live in `fetch-normalize.sh`
@@ -141,10 +149,10 @@ A clearly labelled report was recovered from 313 of 697 listed items; none of
 its agent review was completed. Allow long-running fetches rather than wrapping
 them in a short tool timeout. Process exit status alone is not sweep completion.
 
-Partial recovery is currently manual. The renderer does not yet read partial
-snapshot metadata, so rerendering a recovered report can lose its manually added
-warning. [The trial record](docs/verification.md#loris-trial-and-partial-recovery)
-distinguishes this from the successful small-repo and recorded-data checks.
+The historical Loris run predates durable fetch state and cannot be resumed by
+the new command. Its recovered partial report remains useful evidence, not a
+complete snapshot. [The trial record](docs/verification.md#loris-trial-and-partial-recovery)
+distinguishes it from the successful small-repo and recorded-data checks.
 
 For ongoing development, read [the handoff](docs/handoff.md) before choosing
 the next task. It records the uncommitted cleanup and remaining operational work.

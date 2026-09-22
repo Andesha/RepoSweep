@@ -1,14 +1,47 @@
 #!/bin/sh
-# Start a read-only sweep. The driving agent completes judgment via review.sh.
+# Start or resume a read-only sweep. The driving agent completes judgment via review.sh.
 set -eu
 HERE=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 . "$HERE/lib.sh"
+
+usage() {
+  printf 'Usage:\n  sh %s [TARGET_REPO_DIRECTORY]\n  sh %s resume RUN_DIRECTORY\n  sh %s status RUN_DIRECTORY\n\nFetch, classify, and render a preliminary report, or resume/inspect an interrupted run.\nOnly local .reposweep/ artifacts are written.\n' "$0" "$0" "$0"
+}
+
+finish_run() {
+  RUN=$1 ROOT=$2
+  [ -f "$RUN/items.jsonl" ] || sh "$HERE/fetch-normalize.sh" "$RUN" >/dev/null
+  [ -f "$RUN/verdicts.jsonl" ] || sh "$HERE/classify.sh" "$RUN" >/dev/null
+  sh "$HERE/report.sh" "$RUN" >/dev/null
+  jq -e '.snapshot.complete == true' "$RUN/meta.json" >/dev/null || {
+    echo 'reposweep: refusing to publish latest for an incomplete snapshot' >&2; exit 1;
+  }
+  RUNS="$ROOT/.reposweep/runs"
+  if [ -e "$RUNS/latest" ] && [ ! -L "$RUNS/latest" ]; then
+    echo "reposweep: refusing to replace non-symlink $RUNS/latest" >&2; exit 1
+  fi
+  rm -f "$RUNS/latest"
+  ln -s "$(basename "$RUN")" "$RUNS/latest"
+  jq -rs --arg run "$RUN" '"reposweep: \(length) items; \([.[] | select(.needs_agent)] | length) judgments and \([.[].duplicate_candidates[] | select(.confirmed == null)] | length) duplicate pairs pending.\nReport: \($run)/report.html\nNo tracker changes made."' "$RUN/verdicts.jsonl" >&2
+  printf '\nContinue with: sh %s/review.sh next %s\n\n' "$HERE" "$RUN" >&2
+  sh "$HERE/report.sh" --publish "$RUN" "$ROOT" >&2
+  printf '%s\n' "$RUN"
+}
+
 case "${1:-}" in
-  -h|--help)
-    printf 'Usage: sh %s [TARGET_REPO_DIRECTORY]\n\nFetch all open GitHub issues and PRs, classify, and render a preliminary report.\nRun inside an agent with SKILL.md to complete judgment and duplicate review.\nOnly local .reposweep/ artifacts are written.\n' "$0"
+  -h|--help) usage; exit 0;;
+  status)
+    [ "$#" -eq 2 ] || { usage >&2; exit 1; }
+    exec sh "$HERE/status.sh" "$2";;
+  resume)
+    [ "$#" -eq 2 ] || { usage >&2; exit 1; }
+    RUN=$(CDPATH='' cd "$2" && pwd)
+    ROOT=$(git -C "$RUN" rev-parse --show-toplevel)
+    finish_run "$RUN" "$ROOT"
     exit 0;;
 esac
-[ "$#" -le 1 ] || { echo 'reposweep: expected at most one target directory' >&2; exit 1; }
+
+[ "$#" -le 1 ] || { usage >&2; exit 1; }
 for tool in gh jq git; do command -v "$tool" >/dev/null || { echo "reposweep: missing $tool" >&2; exit 1; }; done
 ROOT=$(git -C "${1:-.}" rev-parse --show-toplevel)
 REPO=$(cd "$ROOT" && gh repo view --json nameWithOwner -q .nameWithOwner)
@@ -26,16 +59,4 @@ printf '%s\n' "$config" | write_meta "$RUN" "$SA" "$REPO"
 jq --argjson labels "$labels" '.labels = $labels' "$RUN/meta.json" > "$RUN/meta.tmp"
 mv "$RUN/meta.tmp" "$RUN/meta.json"
 printf 'reposweep: fetching %s into %s\n' "$REPO" "$RUN" >&2
-sh "$HERE/fetch-normalize.sh" "$RUN" >/dev/null
-sh "$HERE/classify.sh" "$RUN" >/dev/null
-sh "$HERE/report.sh" "$RUN" >/dev/null
-# Publish latest only after the mechanical run succeeds.
-if [ -e "$RUNS/latest" ] && [ ! -L "$RUNS/latest" ]; then
-  echo "reposweep: refusing to replace non-symlink $RUNS/latest" >&2; exit 1
-fi
-rm -f "$RUNS/latest"
-ln -s "$(basename "$RUN")" "$RUNS/latest"
-jq -rs --arg run "$RUN" '"reposweep: \(length) items; \([.[] | select(.needs_agent)] | length) judgments and \([.[].duplicate_candidates[] | select(.confirmed == null)] | length) duplicate pairs pending.\nReport: \($run)/report.html\nNo tracker changes made."' "$RUN/verdicts.jsonl" >&2
-printf '\nContinue with: sh %s/review.sh next %s\n\n' "$HERE" "$RUN" >&2
-sh "$HERE/report.sh" --publish "$RUN" "$ROOT" >&2
-printf '%s\n' "$RUN"
+finish_run "$RUN" "$ROOT"

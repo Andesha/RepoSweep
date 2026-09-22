@@ -132,4 +132,34 @@ sh "$SCRIPTS/report.sh" "$run" >/dev/null
 cmp "$work/partial.html" "$run/report.html"
 grep -q 'Incomplete snapshot' "$run/report.html"
 if sh "$SCRIPTS/mark-partial.sh" "$run" 1 'Bad count' >/dev/null 2>&1; then echo 'FAIL: accepted undersized listed count' >&2; exit 1; fi
-printf '\n%d artifact checks passed; config precedence, batch rejection, snapshot metadata, and rerender checks passed.\n' "$checks"
+# A fake GitHub integration proves that interruption preserves records, resume skips
+# completed PR details, and latest is published only after a complete snapshot.
+mkdir -p "$work/bin" "$work/target"
+printf '%s\n' '#!/bin/sh' \
+  'printf "%s\\n" "$*" >> "$FAKE_GH_LOG"' \
+  'if [ "$1 $2" = "repo view" ]; then printf "%s\\n" "example/repo"; exit 0; fi' \
+  'url=${5:-${4:-${3:-}}}' \
+  'case "$url" in' \
+  '  *issues*) printf "%s\\n" '\''[{"number":1,"html_url":"https://example/1","title":"Issue one","state":"open","user":{"login":"human","type":"User"},"created_at":"2025-12-01T00:00:00Z","updated_at":"2025-12-31T00:00:00Z","labels":[]},{"number":2,"pull_request":{},"html_url":"https://example/2","title":"PR two","state":"open","user":{"login":"human","type":"User"},"created_at":"2025-12-01T00:00:00Z","updated_at":"2025-12-31T00:00:00Z","labels":[]},{"number":3,"pull_request":{},"html_url":"https://example/3","title":"PR three","state":"open","user":{"login":"human","type":"User"},"created_at":"2025-12-01T00:00:00Z","updated_at":"2025-12-31T00:00:00Z","labels":[]}]'\'';;' \
+  '  *pulls/2) printf "%s\\n" '\''{"number":2,"html_url":"https://example/2","title":"PR two","state":"open","user":{"login":"human","type":"User"},"created_at":"2025-12-01T00:00:00Z","updated_at":"2025-12-31T00:00:00Z","labels":[],"draft":false,"additions":1,"deletions":0,"changed_files":1,"mergeable_state":"clean"}'\'';;' \
+  '  *pulls/3) if [ ! -e "$FAKE_GH_STATE/interrupted" ]; then touch "$FAKE_GH_STATE/interrupted"; exit 1; fi; printf "%s\\n" '\''{"number":3,"html_url":"https://example/3","title":"PR three","state":"open","user":{"login":"human","type":"User"},"created_at":"2025-12-01T00:00:00Z","updated_at":"2025-12-31T00:00:00Z","labels":[],"draft":false,"additions":1,"deletions":0,"changed_files":1,"mergeable_state":"clean"}'\'';;' \
+  '  *) echo "unexpected gh call: $*" >&2; exit 2;;' \
+  'esac' > "$work/bin/gh"
+chmod +x "$work/bin/gh"
+git init -q "$work/target"
+export FAKE_GH_LOG="$work/gh.log" FAKE_GH_STATE="$work"
+if PATH="$work/bin:$PATH" REPOSWEEP_NOW=1767225600 sh "$SCRIPTS/reposweep" "$work/target" >/dev/null 2>&1; then
+  echo 'FAIL: fake interrupted fetch succeeded' >&2; exit 1
+fi
+fake_run=$(find "$work/target/.reposweep/runs" -mindepth 1 -maxdepth 1 -type d | head -n 1)
+[ ! -e "$work/target/.reposweep/runs/latest" ]
+sh "$SCRIPTS/status.sh" "$fake_run" > "$work/status.json"
+jq -e '.fetch == {state:"interrupted",completed:2,total:3} and .classification.state == "not-started"' "$work/status.json" >/dev/null
+PATH="$work/bin:$PATH" REPOSWEEP_RETRY_DELAY=0 sh "$SCRIPTS/reposweep" resume "$fake_run" >/dev/null 2>&1
+[ -L "$work/target/.reposweep/runs/latest" ]
+sh "$SCRIPTS/status.sh" "$fake_run" > "$work/status.json"
+jq -e '.fetch == {state:"complete",completed:3,total:3} and .snapshot.complete and .classification.state == "complete"' "$work/status.json" >/dev/null
+[ "$(grep -c 'pulls/2' "$work/gh.log")" -eq 1 ] || { echo 'FAIL: repeated completed PR detail request' >&2; exit 1; }
+printf 'ok - interrupted fetch resumes without replacing latest or repeating completed PR details\n'
+
+printf '\n%d artifact checks passed; config precedence, batch rejection, snapshot metadata, rerender, and fetch recovery checks passed.\n' "$checks"
